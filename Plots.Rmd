@@ -1,0 +1,1274 @@
+---
+title: "General Results Plots"
+author: "Freddy"
+date: "2026-04-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Load packages
+```{r}
+pacman::p_load(tidyverse, gridEXTRA, ggtext, magick, png, extrafont, ggridges, brms, bayesplot)
+```
+
+
+```{r}
+plot_df <- read_csv("C:/Users/frede/Documents/Speciale/Analysis/all_data.csv")
+```
+
+
+```{r}
+#change key presses for more beautiful plots
+
+plot_df <- plot_df %>%
+  mutate(
+    KeyPressEvent = factor(KeyPressEvent, levels = c("S","C","M","L")),
+    media_type = factor(media_type, levels = c("t","a"),
+                        labels = c("Tool","Art"))
+  )
+
+plot_df <- plot_df %>%
+  mutate(
+    response_type = recode(KeyPressEvent,
+      "S" = "Tool",
+      "C" = "Mostly Tool",
+      "M" = "Mostly Art",
+      "L" = "Art"
+    )
+  )
+
+plot_df <- na.omit(plot_df)
+```
+
+
+
+```{r}
+#order thos for plotting
+plot_df$condition <- factor(
+  plot_df$condition,
+  levels = c("unlabelled", "labelled"),
+  labels = c("Unlabelled", "Labelled")
+)
+
+plot_df$media_type <- factor(
+  plot_df$media_type,
+  levels = c("a", "t"),
+  labels = c("Art Objects", "Tool Objects")
+)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+################## Classification Patterns - Plotting ##########################
+
+
+```{r}
+plot_df <- plot_df %>% 
+  rename(Classification = KeyPressEvent)
+
+# Recode key presses to meaningful labels and order them
+plot_df <- plot_df %>%
+  mutate(
+    Classification = factor(
+      case_when(
+        Classification == "S" ~ "Tool",
+        Classification == "C" ~ "Mostly Tool",
+        Classification == "M" ~ "Mostly Art",
+        Classification == "L" ~ "Art"
+      ),
+      levels  = c("Tool", "Mostly Tool", "Mostly Art", "Art"),
+      ordered = TRUE
+    )
+  )
+
+plot_df <- plot_df %>%
+  filter(!is.na(Classification))
+```
+
+
+
+
+```{r}
+
+class <- plot_df %>%
+  count(condition, media_type, Classification) %>%
+  group_by(condition, media_type) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = Classification, y = prop, fill = condition)) +
+  geom_col(position = "dodge", alpha = 0.95) +
+  scale_fill_manual(
+    values = c("Unlabelled" = "#A1AF4F", "Labelled" = "#74346B"),
+    name = "Condition"
+  ) +
+  facet_wrap(~media_type) +
+  labs(
+    x = "Classification Response",
+    y = "Proportion of Response",
+    title = "Classification by Object Type"
+  ) +
+  theme_bw() +
+  theme(text = element_text(family = "Cambria", size = 22))
+
+class
+
+ggsave("responses.png", width = 14, height = 6)
+```
+
+
+
+
+
+
+
+
+########################## Boxplots of Dwell Time ##############################
+
+```{r}
+dwell_time_subset <- d_full %>%
+  mutate(
+    aoi_type_label   = ifelse(aoi_type == "t", "Tool AOI", "Art AOI"),
+    media_type_label = ifelse(media_type == "t", "Tool Object", "Art Object"),
+    rotation_label   = factor(paste0(media_rotation, "°"),
+                              levels = c("0°", "90°", "180°", "270°"))
+  )
+    
+dwell_time_subset <- na.omit(dwell_time_subset)
+```
+
+
+
+
+```{r}
+
+
+
+# Filter to each condition
+dwell_labelled <- dwell_time_subset %>%
+  filter(condition == "labelled")
+
+dwell_unlabelled <- dwell_time_subset %>%
+  filter(condition == "unlabelled")
+
+# Plot function to avoid repeating code
+plot_dwell <- function(data, title) {
+  ggplot(data, aes(x = aoi_type_label, y = prop_dwell, fill = aoi_type_label)) +
+    geom_boxplot(outlier.shape = 23, alpha = 0.9) +
+    facet_grid(media_type_label ~ rotation_label) +
+    scale_fill_manual(values = c("Tool AOI" = "#AE4900", "Art AOI" = "#006B70")) +
+    labs(
+      title = title,
+      x = "AOI",
+      y = "Proportion of Dwell Time",
+      fill  = "AOI Type"
+    ) +
+    theme_bw(base_size = 18) +
+    theme(
+    strip.text      = element_text(face = "bold", family = "Cambria", size = 14),
+    axis.text       = element_text(family = "Cambria"),
+    axis.title      = element_text(family = "Cambria"),
+    legend.text     = element_text(family = "Cambria"),
+    plot.title      = element_text(family = "Cambria"),
+    legend.position = "bottom"
+  )
+}
+
+# Generate plots
+plot_labelled   <- plot_dwell(dwell_labelled,   "Labelled Condition")
+plot_unlabelled <- plot_dwell(dwell_unlabelled, "Unlabelled Condition")
+
+
+plot_labelled
+plot_unlabelled
+
+ggsave("boxplot_labelled.png",plot_labelled, width = 12, height = 8)
+ggsave("boxplot_unlabelled.png", plot_unlabelled, width = 12, height = 8)
+```
+
+
+
+
+
+
+#################### Classification for results ################################
+
+```{r}
+# make new dataframe just in case
+dt_new <- d_full
+
+dt_new$Classification <- factor(
+  dt_new$KeyPressEvent,
+  levels = c("S", "C", "M", "L"),
+  labels = c("Tool", "Mostly Tool", "Mostly Art", "Art")
+)
+
+dt_new$media_type <- factor(
+  dt_new$media_type,
+  levels = c("a", "t"),
+  labels = c("Art Objects", "Tool Objects")
+)
+dt_new <- na.omit(dt_new)
+```
+
+
+
+```{r}
+# Plot
+
+dt_new %>%
+  count(media_type, Classification) %>%
+  group_by(media_type) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = Classification, y = prop, fill = Classification)) +
+  geom_col(alpha = 0.9) +
+  scale_fill_manual(values = c("#AE4900" , "#AE4900", "#006B70","#006B70")) +
+  facet_wrap(~media_type) +
+  labs(
+    x = "Classification Response",
+    y = "Proportion of Responses",
+    title = "Classification Responses by Object Type"
+  ) +
+  theme_bw() +
+  theme(text = element_text(family = "Cambria", size = 14))
+
+ggsave("classification.png", width = 10, height = 6)
+```
+
+
+
+#### PLotting unlabelled and labelled individually
+```{r}
+df_un_class <- subset(dt_new, condition == "unlabelled")
+df_la_class <- subset(dt_new, condition == "labelled")
+```
+
+
+```{r}
+#unlabelled plot
+
+un_class_plot <- df_un_class %>%
+  count(media_type, Classification) %>%
+  group_by(media_type) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = Classification, y = prop, fill = Classification)) +
+  geom_col(alpha = 0.9) +
+  scale_fill_manual(values = c("#AE4900" , "#AE4900", "#006B70","#006B70")) +
+  facet_wrap(~media_type) +
+  labs(
+    x = "Classification Response",
+    y = "Proportion of Responses",
+    title = "Unlabelled - Classification Responses by Object Type"
+  ) +
+  theme_bw() +
+  theme(text = element_text(family = "Cambria", size = 14))
+
+
+#labelled plot
+la_class_plot <- df_la_class %>%
+  count(media_type, Classification) %>%
+  group_by(media_type) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = Classification, y = prop, fill = Classification)) +
+  geom_col(alpha = 0.9) +
+  scale_fill_manual(values = c("#AE4900" , "#AE4900", "#006B70","#006B70")) +
+  facet_wrap(~media_type) +
+  labs(
+    x = "Classification Response",
+    y = "Proportion of Responses",
+    title = "Labelled - Classification Responses by Object Type"
+  ) +
+  theme_bw() +
+  theme(text = element_text(family = "Cambria", size = 14))
+
+
+class_pl <- grid.arrange(un_class_plot, la_class_plot, nrow = 2)
+
+class_pl
+
+ggsave("classification.png", class_pl, width = 9, height = 10)
+```
+
+
+
+
+
+
+
+
+
+
+###################### Forest Plot #############################################
+
+Making a bayesian forest plot, aka a posterior contrast plot, to highlight the 95-CI distributions of hypothesis results, coming from posterior draws.
+
+################################################################################
+
+
+#### 19:51
+```{r}
+eval_h_func <- function(h_string, draws_df) {
+  
+  # Splits on the inequality sign to get the difference
+  if (grepl(">", h_string)) {
+    parts <- strsplit(h_string, ">")[[1]]
+  } else if (grepl("<", h_string)) {
+    parts <- rev(strsplit(h_string, "<")[[1]])  # flip so it's still LHS - RHS
+  } else {
+    parts <- strsplit(h_string, "=")[[1]]
+  }
+  
+  lhs <- trimws(parts[1])
+  rhs <- trimws(parts[2])
+  
+  # Combine into a contrast: LHS - RHS
+  expr_str <- paste0("(", lhs, ") - (", rhs, ")")
+  
+  col_names <- colnames(draws_df)
+  col_names_sorted <- col_names[order(nchar(col_names), decreasing = TRUE)]
+  
+  for (col in col_names_sorted) {
+    bare <- sub("^b_", "", col)
+    pattern <- paste0("(?<!`)\\b", gsub("([.|()\\^{}+$*?])", "\\\\\\1", bare), "\\b")
+    if (grepl(pattern, expr_str, perl = TRUE)) {
+      expr_str <- gsub(pattern, paste0("`", col, "`"), expr_str, perl = TRUE)
+    }
+  }
+  
+  result <- tryCatch(
+    with(draws_df, eval(parse(text = expr_str))),
+    error = function(e) { message("Error in: ", h_string, "\n", e); return(NULL) }
+  )
+  return(result)
+}
+```
+
+
+```{r}
+eval_h_func <- function(h_string, draws_df) {
+  
+  if (grepl(">", h_string)) {
+    parts <- strsplit(h_string, ">")[[1]]
+  } else if (grepl("<", h_string)) {
+    parts <- rev(strsplit(h_string, "<")[[1]])
+  } else {
+    parts <- strsplit(h_string, "=")[[1]]
+  }
+  
+  lhs <- trimws(parts[1])
+  rhs <- trimws(parts[2])
+  expr_str <- paste0("(", lhs, ") - (", rhs, ")")
+  
+  col_names <- colnames(draws_df)
+  col_names_sorted <- col_names[order(nchar(col_names), decreasing = TRUE)]
+  
+  for (col in col_names_sorted) {
+    bare <- sub("^b_", "", col)
+    pattern <- paste0("(?<!`)\\b", gsub("([.|()\\^{}+$*?])", "\\\\\\1", bare), "\\b")
+    if (grepl(pattern, expr_str, perl = TRUE)) {
+      expr_str <- gsub(pattern, paste0("`", col, "`"), expr_str, perl = TRUE)
+    }
+  }
+  
+  with(draws_df, eval(parse(text = expr_str)))
+}
+```
+
+
+#### Define all hypotheses and labels 
+```{r}
+#hypotheses as list for input
+
+hypotheses <- list(
+  
+  H1a = "(conditionlabelled:orientation0:aoi_typea:media_typea + conditionunlabelled:orientation0:aoi_typea:media_typea +
+    conditionlabelled:orientation0:aoi_typea:media_typet + conditionunlabelled:orientation0:aoi_typea:media_typet)/4 >
+    (conditionlabelled:orientation90:aoi_typea:media_typea + conditionunlabelled:orientation90:aoi_typea:media_typea +
+    conditionlabelled:orientation180:aoi_typea:media_typea + conditionunlabelled:orientation180:aoi_typea:media_typea +
+    conditionlabelled:orientation270:aoi_typea:media_typea + conditionunlabelled:orientation270:aoi_typea:media_typea +
+    conditionlabelled:orientation90:aoi_typea:media_typet + conditionunlabelled:orientation90:aoi_typea:media_typet +
+    conditionlabelled:orientation180:aoi_typea:media_typet + conditionunlabelled:orientation180:aoi_typea:media_typet +
+    conditionlabelled:orientation270:aoi_typea:media_typet + conditionunlabelled:orientation270:aoi_typea:media_typet)/12",
+  
+    H1b_tool_art = "(conditionlabelled:orientation0:aoi_typet:media_typet + conditionlabelled:orientation90:aoi_typet:media_typet +
+    conditionlabelled:orientation180:aoi_typet:media_typet + conditionlabelled:orientation270:aoi_typet:media_typet +
+    conditionunlabelled:orientation0:aoi_typet:media_typet + conditionunlabelled:orientation90:aoi_typet:media_typet +
+    conditionunlabelled:orientation180:aoi_typet:media_typet + conditionunlabelled:orientation270:aoi_typet:media_typet)/8 >
+    (conditionlabelled:orientation0:aoi_typet:media_typea + conditionlabelled:orientation90:aoi_typet:media_typea +
+    conditionlabelled:orientation180:aoi_typet:media_typea + conditionlabelled:orientation270:aoi_typet:media_typea +
+    conditionunlabelled:orientation0:aoi_typet:media_typea + conditionunlabelled:orientation90:aoi_typet:media_typea +
+    conditionunlabelled:orientation180:aoi_typet:media_typea + conditionunlabelled:orientation270:aoi_typet:media_typea)/8",
+  
+    H1b_art_tool = "(conditionlabelled:orientation0:aoi_typea:media_typea + conditionlabelled:orientation90:aoi_typea:media_typea +
+    conditionlabelled:orientation180:aoi_typea:media_typea + conditionlabelled:orientation270:aoi_typea:media_typea +
+    conditionunlabelled:orientation0:aoi_typea:media_typea + conditionunlabelled:orientation90:aoi_typea:media_typea +
+    conditionunlabelled:orientation180:aoi_typea:media_typea + conditionunlabelled:orientation270:aoi_typea:media_typea)/8 >
+    (conditionlabelled:orientation0:aoi_typea:media_typet + conditionlabelled:orientation90:aoi_typea:media_typet +
+    conditionlabelled:orientation180:aoi_typea:media_typet + conditionlabelled:orientation270:aoi_typea:media_typet +
+    conditionunlabelled:orientation0:aoi_typea:media_typet + conditionunlabelled:orientation90:aoi_typea:media_typet +
+    conditionunlabelled:orientation180:aoi_typea:media_typet + conditionunlabelled:orientation270:aoi_typea:media_typet)/8",
+  
+  H1b_tool_aoi = "(conditionlabelled:orientation0:aoi_typet:media_typet + conditionlabelled:orientation90:aoi_typet:media_typet +
+    conditionlabelled:orientation180:aoi_typet:media_typet + conditionlabelled:orientation270:aoi_typet:media_typet +
+    conditionunlabelled:orientation0:aoi_typet:media_typet + conditionunlabelled:orientation90:aoi_typet:media_typet +
+    conditionunlabelled:orientation180:aoi_typet:media_typet + conditionunlabelled:orientation270:aoi_typet:media_typet)/8 >
+    (conditionlabelled:orientation0:aoi_typea:media_typet + conditionlabelled:orientation90:aoi_typea:media_typet +
+    conditionlabelled:orientation180:aoi_typea:media_typet + conditionlabelled:orientation270:aoi_typea:media_typet +
+    conditionunlabelled:orientation0:aoi_typea:media_typet + conditionunlabelled:orientation90:aoi_typea:media_typet +
+    conditionunlabelled:orientation180:aoi_typea:media_typet + conditionunlabelled:orientation270:aoi_typea:media_typet)/8",
+  
+    H1b_art_aoi = "(conditionlabelled:orientation0:aoi_typea:media_typea + conditionlabelled:orientation90:aoi_typea:media_typea +
+    conditionlabelled:orientation180:aoi_typea:media_typea + conditionlabelled:orientation270:aoi_typea:media_typea +
+    conditionunlabelled:orientation0:aoi_typea:media_typea + conditionunlabelled:orientation90:aoi_typea:media_typea +
+    conditionunlabelled:orientation180:aoi_typea:media_typea + conditionunlabelled:orientation270:aoi_typea:media_typea)/8 >
+    (conditionlabelled:orientation0:aoi_typet:media_typea + conditionlabelled:orientation90:aoi_typet:media_typea +
+    conditionlabelled:orientation180:aoi_typet:media_typea + conditionlabelled:orientation270:aoi_typet:media_typea +
+    conditionunlabelled:orientation0:aoi_typet:media_typea + conditionunlabelled:orientation90:aoi_typet:media_typea +
+    conditionunlabelled:orientation180:aoi_typet:media_typea + conditionunlabelled:orientation270:aoi_typet:media_typea)/8",
+  
+  
+  H2_tool = "((conditionlabelled:orientation0:aoi_typet:media_typet - conditionlabelled:orientation0:aoi_typet:media_typea) +
+    (conditionlabelled:orientation90:aoi_typet:media_typet - conditionlabelled:orientation90:aoi_typet:media_typea) +
+    (conditionlabelled:orientation180:aoi_typet:media_typet - conditionlabelled:orientation180:aoi_typet:media_typea) +
+    (conditionlabelled:orientation270:aoi_typet:media_typet - conditionlabelled:orientation270:aoi_typet:media_typea))/4 >
+    ((conditionunlabelled:orientation0:aoi_typet:media_typet - conditionunlabelled:orientation0:aoi_typet:media_typea) +
+    (conditionunlabelled:orientation90:aoi_typet:media_typet - conditionunlabelled:orientation90:aoi_typet:media_typea) +
+    (conditionunlabelled:orientation180:aoi_typet:media_typet - conditionunlabelled:orientation180:aoi_typet:media_typea) +
+    (conditionunlabelled:orientation270:aoi_typet:media_typet - conditionunlabelled:orientation270:aoi_typet:media_typea))/4",
+  
+  H3 = "(conditionunlabelled:orientation0:aoi_typea:media_typea + conditionunlabelled:orientation0:aoi_typea:media_typet)/2 -
+    (conditionunlabelled:orientation90:aoi_typea:media_typea + conditionunlabelled:orientation180:aoi_typea:media_typea +
+    conditionunlabelled:orientation270:aoi_typea:media_typea + conditionunlabelled:orientation90:aoi_typea:media_typet +
+    conditionunlabelled:orientation180:aoi_typea:media_typet + conditionunlabelled:orientation270:aoi_typea:media_typet)/6 >
+    (conditionlabelled:orientation0:aoi_typea:media_typea + conditionlabelled:orientation0:aoi_typea:media_typet)/2 -
+    (conditionlabelled:orientation90:aoi_typea:media_typea + conditionlabelled:orientation180:aoi_typea:media_typea +
+    conditionlabelled:orientation270:aoi_typea:media_typea + conditionlabelled:orientation90:aoi_typea:media_typet +
+    conditionlabelled:orientation180:aoi_typea:media_typet + conditionlabelled:orientation270:aoi_typea:media_typet)/6",
+  
+  H4 = "(conditionlabelled:media_typea:prop_dwell_tool + conditionlabelled:media_typet:prop_dwell_tool +
+    conditionunlabelled:media_typea:prop_dwell_tool + conditionunlabelled:media_typet:prop_dwell_tool)/4 > 0"
+)
+
+# Readable labels in the same order
+hyp_labels <- c(
+  "H1a: Canonical orientation on art AOI",
+  "H1b.1: Tool AOI on tool vs. on art",
+  "H1b.1: Art AOI on art vs. on tool",
+  "H1b.2: Tool AOI focus on tools",
+  "H1b.2: Art AOI focus on art",
+  "H2: Labels bias visual attention",
+  "H3: Labelling attenuates orientation",
+  "H4: Dwell time predicts classification"
+)
+```
+
+
+### Extracting draws from both models
+```{r}
+
+#merging draws from model m4_pos (H1a, H1b, H2, H3) and m3_pos_H4a (H4)
+
+draws <- bind_cols(as_draws_df(m4_pos), as_draws_df(m3_pos_H4a))
+# make sure column names dont clash
+```
+
+
+```{r}
+# Hypotheses that belong to m4_pos
+hypotheses_m4 <- hypotheses[c("H1a", "H1b_tool_art", 
+                               "H1b_art_tool","H1b_tool_aoi", "H1b_art_aoi", "H2_tool", "H3")]
+
+# Hypotheses that belong to m3_pos_H4a
+hypotheses_m3 <- hypotheses["H4"]
+
+# Run hypothesis on the correct model for each group
+forest_data <- bind_rows(
+  imap_dfr(hypotheses_m4, function(h, name) {
+    res <- hypothesis(m4_pos, h)$hypothesis
+    data.frame(
+      label      = hyp_labels[which(names(hypotheses) == name)],
+      estimate   = res$Estimate,
+      ci_low     = res$CI.Lower,
+      ci_high    = res$CI.Upper,
+      evid_ratio = res$Evid.Ratio,
+      supported  = res$Evid.Ratio >= 3
+    )
+  }),
+  imap_dfr(hypotheses_m3, function(h, name) {
+    res <- hypothesis(m3_pos_H4a, h)$hypothesis
+    data.frame(
+      label      = hyp_labels[which(names(hypotheses) == name)],
+      estimate   = res$Estimate,
+      ci_low     = res$CI.Lower,
+      ci_high    = res$CI.Upper,
+      evid_ratio = res$Evid.Ratio,
+      supported  = res$Evid.Ratio >= 3
+    )
+  })
+)
+```
+
+
+```{r}
+
+#Extract posterior draws form all hypotheses
+
+ridge_data <- imap_dfr(hypotheses, function(h, name) {
+  vals <- eval_h_func(h, draws)
+  if (is.null(vals)) return(NULL)
+  data.frame(
+    label = hyp_labels[which(names(hypotheses) == name)],
+    value = vals
+  )
+})
+```
+
+
+```{r}
+#fix order so H1a on top etc.
+
+label_order <- rev(hyp_labels)   # rev() so H1a ends up on top
+forest_data$label <- factor(forest_data$label, levels = label_order)
+ridge_data$label  <- factor(ridge_data$label,  levels = label_order)
+```
+
+####Plotting a bayesian forest plot
+```{r}
+dwelling_in_a_forest <- ggplot() +
+  geom_density_ridges(
+    data  = ridge_data,
+    aes(x = value, y = label),
+    alpha = 0.8, linewidth = 0.5,
+    color = "#454B21", fill = "#5D652D",
+    trim  = FALSE, scale = 0.9   # scale < 1 keeps ridges from overlapping
+  ) +
+  geom_errorbar(
+    data = forest_data,
+    aes(y = label, xmin = ci_low, xmax = ci_high),
+    width = 0, linewidth = 0.9, color = "#74346B"
+  ) +
+  geom_point(
+    data  = forest_data,
+    aes(y = label, x = estimate),
+    fill  = "#74346B", color = "#74346B", size = 3
+  ) +
+  geom_vline(
+    xintercept = 0, color = "#74346B",
+    linetype = "dashed", linewidth = 0.8, alpha = 0.8 #line to emphasise 0 
+  ) +
+  labs(
+    title = "Hypothesis Tests - Posterior Distributions",
+    x     = "Contrast Estimate (95% CI)",
+    y     = NULL
+  ) +
+  theme_bw() +
+  scale_y_discrete(expand = expansion(add = c(0.3, 1))) +
+  theme(
+    text         = element_text(family = "Cambria", size = 16),
+    legend.position = "bottom"
+  )
+
+dwelling_in_a_forest
+
+ggsave("forestdwelll.png", dwelling_in_a_forest, width = 10, height = 6)
+```
+
+
+
+
+
+
+
+
+
+
+##################### Object Colllages #########################################
+
+This section contains the code for building the collage figure, showcasing all 
+40 objects used in the study.
+
+################################################################################
+
+```{r}
+
+image_dir <- "C:/Users/frede/Documents/Speciale/Analysis/Objects/Art"
+
+
+output_file <- "art_collage_border.png"
+
+# Grid dimensions, 4 horizontal and 5 vertical
+n_cols <- 4
+n_rows <- 5
+
+# Size in pixels!!!! to make sure they are identical
+thumb_width  <- 200
+thumb_height <- 120
+
+# Spacing between images in pixels
+gap <- 6
+
+# Background colour blends in
+bg_colour <- "black"
+
+
+
+# load all images
+files <- list.files(
+  path       = image_dir,
+  pattern    = "\\.png$",
+  full.names = TRUE,
+  ignore.case = TRUE
+)
+
+
+# Load and resize every image to a uniform thumbnail
+thumbs <- lapply(files, function(f) {
+  img <- image_read(f)
+  image_resize(img, paste0(thumb_width, "x", thumb_height, "!"))
+  # ! flag forces exact dimensions, looks weird otherwise
+
+})
+
+
+#Building collage
+
+n_total <- n_cols * n_rows #should be 20
+
+
+# Assemble rows and make collage
+rows <- lapply(seq(1, n_total, by = n_cols), function(i) {
+  row_imgs <- thumbs[i:(i + n_cols - 1)]
+  image_append(image_join(row_imgs), stack = FALSE)
+})
+
+collage <- image_append(image_join(rows), stack = TRUE)
+
+#save image
+image_write(collage, path = output_file, format = "png")
+
+```
+
+
+
+
+
+```{r}
+# Folder containing all tools
+image_dir <- "C:/.../Analysis/Objects/Tool"
+
+# Output file path and name
+output_file <- "tool_collage_border.png"
+
+# Grid dimensions, 4 horizontal and 5 vertical
+n_cols <- 4
+n_rows <- 5
+
+# Size in pixels!!!! to make sure they are identical
+thumb_width  <- 200
+thumb_height <- 120
+
+# Spacing between images in pixels
+gap <- 6
+
+# Background colour blends in
+bg_colour <- "black"
+
+
+
+# load all images
+files <- list.files(
+  path       = image_dir,
+  pattern    = "\\.png$",
+  full.names = TRUE,
+  ignore.case = TRUE
+)
+
+
+# Load and resize every image to a uniform thumbnail
+thumbs <- lapply(files, function(f) {
+  img <- image_read(f)
+  image_resize(img, paste0(thumb_width, "x", thumb_height, "!"))
+  # ! flag forces exact dimensions, looks weird otherwise
+
+})
+
+
+#Building collage
+
+n_total <- n_cols * n_rows #should be 20
+
+
+# Assemble rows and make collage
+rows <- lapply(seq(1, n_total, by = n_cols), function(i) {
+  row_imgs <- thumbs[i:(i + n_cols - 1)]
+  image_append(image_join(row_imgs), stack = FALSE)
+})
+
+collage <- image_append(image_join(rows), stack = TRUE)
+
+#save image
+image_write(collage, path = output_file, format = "png")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+########################## Heatmaps ############################################
+
+Making comparison heatmaps for both the unlabelled and the labelled group
+
+################################################################################
+
+```{r}
+#separate the conditions
+dun <- d_full %>% 
+  filter(condition == "unlabelled")
+
+dla <- d_full %>% 
+  filter(condition == "labelled")
+
+```
+
+
+
+
+
+######################### Unlabelled Heatmaps ##################################
+
+#0
+```{r}
+img <- readPNG("C:/Users/frede/Documents/Speciale/Analysis/Objects/Tool/27_t_0.png")
+height <- dim(img)[1]  # rows = height
+width  <- dim(img)[2]  # cols = width
+img_raster <- as.raster(img)
+```
+
+
+```{r}
+          
+# flip Y in the data itself instead of the axis
+fixations_plot <- dun %>%
+  filter(MediaName == "27_t_0.png") %>%
+  mutate(y_flipped = height - `GazePointY (MCSpx)`)
+
+ggplot(fixations_plot, aes(x = `GazePointX (MCSpx)`, y = y_flipped)) +
+  annotation_raster(img_raster, xmin=0, xmax=width, ymin=0, ymax=height) +
+  stat_density_2d(aes(fill = after_stat(level)), geom = "polygon",
+                  contour = TRUE, alpha = 0.5,
+                  h = c(50, 50)) +
+  scale_fill_gradient(low = "#006B70", high = "#923F00", name = "Fixation Density") +
+  scale_x_continuous(limits = c(0, width), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, height), expand = c(0,0)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(
+  axis.text = element_blank(),
+  axis.title = element_blank(),
+  axis.ticks = element_blank(),
+  panel.border = element_blank(),
+  legend.position = "right",
+  plot.background = element_rect(fill = 'black', colour = 'black'),
+                              legend.title = element_text(family = "Cambria"),
+                              legend.text = element_text(family = "Cambria")
+)
+  #theme(legend.position = "right") +
+  #theme(plot.background = element_rect(fill = 'black', colour = 'black'))
+
+ggsave("hm_un_27_t_0.png", width = 6.5, height = 4)
+
+```
+
+#90
+
+```{r}
+img <- readPNG("C:/Users/frede/Documents/Speciale/Analysis/Objects/Art/30_a_90.png")
+height <- dim(img)[1]  # rows = height
+width  <- dim(img)[2]  # cols = width
+img_raster <- as.raster(img)
+```
+
+
+```{r}
+# flip Y in the data itself instead of the axis
+fixations_plot <- dun %>%
+  filter(MediaName == "30_a_90.png") %>%
+  mutate(y_flipped = height - `GazePointY (MCSpx)`)
+
+ggplot(fixations_plot, aes(x = `GazePointX (MCSpx)`, y = y_flipped)) +
+  annotation_raster(img_raster, xmin=0, xmax=width, ymin=0, ymax=height) +
+  stat_density_2d(aes(fill = after_stat(level)), geom = "polygon",
+                  contour = TRUE, alpha = 0.5,
+                  h = c(50, 50)) +
+  scale_fill_gradient(low = "#006B70", high = "#923F00", name = "Fixation Density") +
+  scale_x_continuous(limits = c(0, width), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, height), expand = c(0,0)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(
+  axis.text = element_blank(),
+  axis.title = element_blank(),
+  axis.ticks = element_blank(),
+  panel.border = element_blank(),
+  legend.position = "right",
+  plot.background = element_rect(fill = 'black', colour = 'black'),
+                              legend.title = element_text(family = "Cambria"),
+                              legend.text = element_text(family = "Cambria")
+)
+  #theme(legend.position = "right") +
+  #theme(plot.background = element_rect(fill = 'black', colour = 'black'))
+
+ggsave("hm_un_30_a_90.png", width = 6.5, height = 4)
+
+```
+
+
+
+
+### 03_t_180
+```{r}
+img <- readPNG("C:/Users/frede/Documents/Speciale/Analysis/Objects/Tool/03_t_180.png")
+height <- dim(img)[1]  # rows = height
+width  <- dim(img)[2]  # cols = width
+img_raster <- as.raster(img)
+```
+
+
+```{r}
+# flip Y in the data itself instead of the axis
+fixations_plot <- dun %>%
+  filter(MediaName == "03_t_180.png") %>%
+  mutate(y_flipped = height - `GazePointY (MCSpx)`)
+
+ggplot(fixations_plot, aes(x = `GazePointX (MCSpx)`, y = y_flipped)) +
+  annotation_raster(img_raster, xmin=0, xmax=width, ymin=0, ymax=height) +
+  stat_density_2d(aes(fill = after_stat(level)), geom = "polygon",
+                  contour = TRUE, alpha = 0.5,
+                  h = c(50, 50)) +
+  scale_fill_gradient(low = "#006B70", high = "#923F00", name = "Fixation Density") +
+  scale_x_continuous(limits = c(0, width), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, height), expand = c(0,0)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(
+  axis.text = element_blank(),
+  axis.title = element_blank(),
+  axis.ticks = element_blank(),
+  panel.border = element_blank(),
+  legend.position = "right",
+  plot.background = element_rect(fill = 'black', colour = 'black'),
+                              legend.title = element_text(family = "Cambria"),
+                              legend.text = element_text(family = "Cambria")
+)
+  #theme(legend.position = "right") +
+  #theme(plot.background = element_rect(fill = 'black', colour = 'black'))
+
+ggsave("hm_un_03_t_180.png", width = 6.5, height = 4)
+
+```
+
+
+
+
+
+#270
+```{r}
+img <- readPNG("C:/Users/frede/Documents/Speciale/Analysis/Objects/Art/06_a_270.png")
+height <- dim(img)[1]  # rows = height
+width  <- dim(img)[2]  # cols = width
+img_raster <- as.raster(img)
+```
+
+
+```{r}
+          
+# flip Y in the data itself instead of the axis
+fixations_plot <- dun %>%
+  filter(MediaName == "06_a_270.png") %>%
+  mutate(y_flipped = height - `GazePointY (MCSpx)`)
+
+ggplot(fixations_plot, aes(x = `GazePointX (MCSpx)`, y = y_flipped)) +
+  annotation_raster(img_raster, xmin=0, xmax=width, ymin=0, ymax=height) +
+  stat_density_2d(aes(fill = after_stat(level)), geom = "polygon",
+                  contour = TRUE, alpha = 0.5,
+                  h = c(50, 50)) +
+  scale_fill_gradient(low = "#006B70", high = "#923F00", name = "Fixation Density") +
+  scale_x_continuous(limits = c(0, width), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, height), expand = c(0,0)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(
+  axis.text = element_blank(),
+  axis.title = element_blank(),
+  axis.ticks = element_blank(),
+  panel.border = element_blank(),
+  legend.position = "right",
+  plot.background = element_rect(fill = 'black', colour = 'black'),
+                              legend.title = element_text(family = "Cambria"),
+                              legend.text = element_text(family = "Cambria")
+)
+  #theme(legend.position = "right") +
+  #theme(plot.background = element_rect(fill = 'black', colour = 'black'))
+
+ggsave("hm_un_06_a_270.png", width = 6.5, height = 4)
+
+```
+
+
+
+
+
+
+########################## Labelled heatmaps ##################################
+
+Example heatmaps of four different objects, two tools and two art objects, in four different orientations. Repeat entire process for labelled and unlabelled group, for side-by-side comparison.
+
+################################################################################
+
+#0
+```{r}
+img <- readPNG("C:/...e/Analysis/Objects/Tool/27_t_0_l.png")
+height <- dim(img)[1]  # rows = height
+width  <- dim(img)[2]  # cols = width
+img_raster <- as.raster(img)
+```
+
+
+```{r}
+          
+# flip Y in the data itself instead of the axis
+fixations_plot <- dla %>%
+  filter(MediaName == "27_t_0.png") %>%
+  mutate(y_flipped = height - `GazePointY (MCSpx)`)
+
+ggplot(fixations_plot, aes(x = `GazePointX (MCSpx)`, y = y_flipped)) +
+  annotation_raster(img_raster, xmin=0, xmax=width, ymin=0, ymax=height) +
+  stat_density_2d(aes(fill = after_stat(level)), geom = "polygon",
+                  contour = TRUE, alpha = 0.5,
+                  h = c(50, 50)) +
+  scale_fill_gradient(low = "#006B70", high = "#923F00", name = "Fixation Density") +
+  scale_x_continuous(limits = c(0, width), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, height), expand = c(0,0)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(
+  axis.text = element_blank(),
+  axis.title = element_blank(),
+  axis.ticks = element_blank(),
+  panel.border = element_blank(),
+  legend.position = "right",
+  plot.background = element_rect(fill = 'black', colour = 'black'),
+                              legend.title = element_text(family = "Cambria"),
+                              legend.text = element_text(family = "Cambria")
+)
+  #theme(legend.position = "right") +
+  #theme(plot.background = element_rect(fill = 'black', colour = 'black'))
+
+ggsave("hm_la_27_t_0.png", width = 6.5, height = 4)
+
+```
+
+
+
+
+
+#90
+
+```{r}
+img <- readPNG("C:/.../Analysis/Objects/Art/30_a_90_l.png")
+height <- dim(img)[1]  # rows = height
+width  <- dim(img)[2]  # cols = width
+img_raster <- as.raster(img)
+```
+
+
+```{r}
+# flip Y in the data itself instead of the axis
+fixations_plot <- dla %>%
+  filter(MediaName == "30_a_90.png") %>%
+  mutate(y_flipped = height - `GazePointY (MCSpx)`)
+
+ggplot(fixations_plot, aes(x = `GazePointX (MCSpx)`, y = y_flipped)) +
+  annotation_raster(img_raster, xmin=0, xmax=width, ymin=0, ymax=height) +
+  stat_density_2d(aes(fill = after_stat(level)), geom = "polygon",
+                  contour = TRUE, alpha = 0.5,
+                  h = c(50, 50)) +
+  scale_fill_gradient(low = "#006B70", high = "#923F00", name = "Fixation Density") +
+  scale_x_continuous(limits = c(0, width), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, height), expand = c(0,0)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(
+  axis.text = element_blank(),
+  axis.title = element_blank(),
+  axis.ticks = element_blank(),
+  panel.border = element_blank(),
+  legend.position = "right",
+  plot.background = element_rect(fill = 'black', colour = 'black'),
+                              legend.title = element_text(family = "Cambria"),
+                              legend.text = element_text(family = "Cambria")
+)
+  #theme(legend.position = "right") +
+  #theme(plot.background = element_rect(fill = 'black', colour = 'black'))
+
+ggsave("hm_la_30_a_90.png", width = 6.5, height = 4)
+
+```
+
+
+
+
+
+
+### 03_t_180
+```{r}
+img <- readPNG("C:/.../Analysis/Objects/Tool/03_t_180_l.png")
+height <- dim(img)[1]  # rows = height
+width  <- dim(img)[2]  # cols = width
+img_raster <- as.raster(img)
+```
+
+
+```{r}
+# flip Y in the data itself instead of the axis
+fixations_plot <- dla %>%
+  filter(MediaName == "03_t_180.png") %>%
+  mutate(y_flipped = height - `GazePointY (MCSpx)`)
+
+ggplot(fixations_plot, aes(x = `GazePointX (MCSpx)`, y = y_flipped)) +
+  annotation_raster(img_raster, xmin=0, xmax=width, ymin=0, ymax=height) +
+  stat_density_2d(aes(fill = after_stat(level)), geom = "polygon",
+                  contour = TRUE, alpha = 0.5,
+                  h = c(50, 50)) +
+  scale_fill_gradient(low = "#006B70", high = "#923F00", name = "Fixation Density") +
+  scale_x_continuous(limits = c(0, width), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, height), expand = c(0,0)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(
+  axis.text = element_blank(),
+  axis.title = element_blank(),
+  axis.ticks = element_blank(),
+  panel.border = element_blank(),
+  legend.position = "right",
+  plot.background = element_rect(fill = 'black', colour = 'black'),
+                              legend.title = element_text(family = "Cambria"),
+                              legend.text = element_text(family = "Cambria")
+)
+  #theme(legend.position = "right") +
+  #theme(plot.background = element_rect(fill = 'black', colour = 'black'))
+
+ggsave("hm_la_03_t_180.png", width = 6.5, height = 4)
+
+```
+
+
+
+
+
+
+
+#270
+```{r}
+img <- readPNG("C:/.../Analysis/Objects/Art/06_a_270_l.png")
+height <- dim(img)[1]  # rows = height
+width  <- dim(img)[2]  # cols = width
+img_raster <- as.raster(img)
+```
+
+
+```{r}
+          
+# flip Y in the data itself instead of the axis
+fixations_plot <- dla %>%
+  filter(MediaName == "06_a_270.png") %>%
+  mutate(y_flipped = height - `GazePointY (MCSpx)`)
+
+ggplot(fixations_plot, aes(x = `GazePointX (MCSpx)`, y = y_flipped)) +
+  annotation_raster(img_raster, xmin=0, xmax=width, ymin=0, ymax=height) +
+  stat_density_2d(aes(fill = after_stat(level)), geom = "polygon",
+                  contour = TRUE, alpha = 0.5,
+                  h = c(50, 50)) +
+  scale_fill_gradient(low = "#006B70", high = "#923F00", name = "Fixation Density",limits = c(0, 1),
+  breaks = c(0.05, 0.93), labels = c("Low", "High")) +
+  scale_x_continuous(limits = c(0, width), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, height), expand = c(0,0)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(
+  axis.text = element_blank(),
+  axis.title = element_blank(),
+  axis.ticks = element_blank(),
+  panel.border = element_blank(),
+  legend.position = "bottom",
+  plot.background = element_rect(fill = 'black', colour = 'black'),
+                              legend.title = element_text(family = "Cambria", size = 12),
+                              legend.text = element_text(family = "Cambria", size = 10)
+)
+  #theme(legend.position = "right") +
+  #theme(plot.background = element_rect(fill = 'black', colour = 'black'))
+
+ggsave("hm_la_06_a_270.png", width = 14, height = 8)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+###################### General Results Overview ################################
+
+This section contains some general calculations covering the results, such as demographics within the participant population, recording duration, as well as overall classification results.
+
+################################################################################
+
+
+
+########################## Average Gaze Duration ##################
+
+```{r}
+## keep only one value for each participant to calculate the mean time, value repeats because multiple rows
+df_duration <- d_full %>% 
+  group_by(ParticipantName, RecordingDuration) %>% 
+  slice_head() 
+
+mean(df_duration$RecordingDuration)
+sd(df_duration$RecordingDuration)
+
+
+df_duration_u <- df_duration %>% 
+  filter(condition == "unlabelled")
+mean(df_duration_u$RecordingDuration)
+sd(df_duration_u$RecordingDuration)
+
+
+df_duration_l <- df_duration %>% 
+  filter(condition == "labelled")
+mean(df_duration_l$RecordingDuration)
+sd(df_duration_l$RecordingDuration)
+```
+
+
+
+
+
+
+
+#### Observations about dwell time
+```{r}
+dwell_time_subset %>%
+  group_by(media_type_label, aoi_type_label) %>%
+  summarise(
+    min    = min(prop_dwell),
+    max    = max(prop_dwell),
+    q25    = quantile(prop_dwell, 0.25),
+    q75    = quantile(prop_dwell, 0.75),
+    IQR    = IQR(prop_dwell),
+    .groups = "drop"
+  )
+```
+
+
+
+### All classifications
+```{r}
+table(unlist(dt$KeyPressEvent))
+
+
+df_un <- subset(dt, condition == "unlabelled")
+df_l <- subset(dt, condition == "labelled")
+
+```
+
+
+### Unlabelled Classifications
+```{r}
+#14.003 --> All keypresses
+
+table(unlist(df_un$KeyPressEvent))
+
+#7069
+```
+
+
+### Labelled Classifications
+```{r}
+table(unlist(df_l$KeyPressEvent))
+#6934
+```
+
+
+
+
+
+
+################## Demographic analysis #######################################
+
+
+```{r}
+
+d_dem <- d_full %>%
+  distinct(ParticipantName, `[Gender]Value`, `[Age]Value`)
+
+table(participants$`[Age]Value`)
+
+# weirdly gone from the data, so added manually
+participants <- d_dem %>%
+  add_row(
+    ParticipantName = "P45U1",
+    '[Gender]Value' = "Female",
+    '[Age]Value' = "25-34"
+  )
+
+```
+
+
+
+```{r}
+participants <- rbind(participants, data.frame(
+  ParticipantName = "P45U1",
+  `[Gender]Value` = "Female",
+  `[Age]Value` = "25-34"
+))
+
+participants$age_midpoint <- dplyr::case_when(
+  participants$`[Age]Value`== "18-24" ~ 21,
+  participants$`[Age]Value` == "25-34" ~ 29.5,
+  participants$`[Age]Value` == "35-44" ~ 39.5,
+  participants$`[Age]Value` == "45-54" ~ 49.5,
+  participants$`[Age]Value` == "65+" ~ 70
+)
+
+mean(participants$age_midpoint, na.rm = TRUE)
+sd(participants$age_midpoint, na.rm = TRUE)
+```
+
+
+

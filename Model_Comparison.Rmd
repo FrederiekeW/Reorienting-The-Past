@@ -1,0 +1,699 @@
+---
+title: "Model Comparison"
+author: "Frederieke"
+date: "2026-04-22"
+output: html_document
+---
+
+--------------------------- Model Comparison -----------------------------------
+
+This markdown provides an overview over the model comparison process for both models.
+
+--------------------------------------------------------------------------------
+
+
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+### Loading packages
+```{r}
+pacman::p_load(tidyverse, rlang, tidymodels, gridExtra, brms, cmdstanr, truncnorm, bayesplot, loo)
+```
+
+
+
+### Read in dataframe
+```{r}
+dt <- read_csv("C:/.../Analysis/all_data.csv")
+```
+
+
+
+################# Model 1 (H1a, H1b, H2, H3 ####################################
+
+
+
+### Define models with varying complexity
+```{r}
+
+m1 <- bf(trans_dwell ~ 0 + condition:orientation:aoi_type:media_type)
+
+m2 <- bf(trans_dwell ~ 0 + condition:orientation:aoi_type:media_type +
+            (1|ID) +
+            (1 | object_id))
+
+m4 <- bf(trans_dwell ~ 0 + condition:orientation:aoi_type:media_type + 
+           (0 + condition:orientation:aoi_type:media_type | ID) + 
+           (0 + condition:orientation:aoi_type:media_type | object_id))
+
+```
+
+
+
+
+######################### m1 ###################################################
+
+```{r}
+get_prior(
+  bf(trans_dwell ~ 0 + condition:orientation:aoi_type:media_type,
+     phi ~ 1),
+  data   = dt,
+  family = Beta()
+)
+```
+
+
+```{r}
+#mainly using weakly informative priors
+pr1 <- c(
+  prior(normal(0, 1.5), class = "b"),
+  prior(student_t(3, 0, 0.5), class = "sd"),
+  prior(lkj(2), class = "cor")
+)
+```
+
+
+
+#### Run priors
+```{r}
+m1_prior <-
+  brm(
+    m1,
+    data = dt,
+    prior = pr1,
+    family = Beta(link="logit"),
+    sample_prior="only",
+    backend = "cmdstanr",
+    file = "m1_prior",
+    warmup = 1000,
+    iter = 2000,
+    chains = 2,
+    cores = 2,
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 20
+    )
+  )
+```
+
+
+
+### Prior checks
+```{r}
+pp1 <- pp_check(m1_prior, ndraws = 100)
+```
+
+```{r}
+pp1 + xlim(-2, 2)
+```
+
+
+### Fitting the posterior model
+```{r}
+m1_pos <- brm(
+    m1,
+    data = dt,
+    family = Beta(link = "logit"),
+    prior = pr1,
+    sample_prior = T,
+    iter = 2000,
+    warmup = 1000,
+    cores = 2,
+    chains = 2,
+    backend = "cmdstanr",
+    threads = threading(4),
+    file = "m1_pos",
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 15 ))
+
+
+```
+
+
+```{r}
+summary(m1_pos)
+```
+
+
+## Check Posteriors
+```{r}
+pp1_pos <- pp_check(m1_pos, ndraws = 100) + xlim(-0.2, 1.2)
+pp1_pos
+```
+
+
+
+
+###################### m2 ############################################
+
+
+```{r}
+#mainly using weakly informative priors
+pr2 <- c(
+  prior(normal(0, 1.5), class = "b"),
+  prior(student_t(3, 0, 0.5), class = "sd"),
+  prior(lkj(2), class = "cor")
+)
+```
+
+
+
+
+```{r}
+#### Run priors
+m2_prior <-
+  brm(
+    m2,
+    data = dt,
+    prior = pr2,
+    family = Beta(link="logit"),
+    sample_prior="only",
+    backend = "cmdstanr",
+    file = "m2_prior",
+    warmup = 1000,
+    iter = 2000,
+    chains = 2,
+    cores = 2,
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 20
+    )
+  )
+```
+
+
+
+
+
+### Prior checks
+```{r}
+pp2 <- pp_check(m2_prior, ndraws = 100)
+
+pp2 + xlim(0,1.5)
+```
+
+
+### Fitting the posterior model
+```{r}
+m2_pos <- brm(
+    m2,
+    data = dt,
+    family = Beta(link = "logit"),
+    prior = pr2,
+    sample_prior = T,
+    iter = 2000,
+    warmup = 1000,
+    cores = 2,
+    chains = 2,
+    backend = "cmdstanr",
+    threads = threading(4),
+    file = "m2_pos",
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 15 ))
+
+
+```
+
+
+
+```{r}
+summary(m2_pos)
+```
+
+
+```{r}
+## Check Posteriors
+pp2_pos <- pp_check(m2_pos, ndraws = 100) + xlim(-0.2, 1.2)
+pp2_pos
+```
+
+
+######################## m4 ####################################################
+
+
+```{r}
+pr4 <- c(
+  prior(normal(0, 1.5), class = "b"),
+  prior(student_t(3, 0, 0.5), class = "sd"),
+  prior(lkj(2), class = "cor")
+)
+```
+
+
+
+#### Run priors
+```{r}
+m4_prior <-
+  brm(
+    m4,
+    data = dt,
+    prior = pr4,
+    family = Beta(link="logit"),
+    sample_prior="only",
+    backend = "cmdstanr",
+    file = "real_m4_prior",
+    warmup = 500,
+    iter = 1000,
+    chains = 2,
+    cores = 2,
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 20
+    )
+  )
+```
+
+
+
+### Prior checks
+```{r}
+pp4 <- pp_check(m4_prior, ndraws = 100)
+```
+
+```{r}
+pp4 + xlim(-1, 2)
+```
+
+
+
+### Fitting the posterior model
+```{r}
+m4_pos <- brm(
+    m4,
+    data = dt,
+    family = Beta(link = "logit"),
+    prior = pr4,
+    sample_prior = T,
+    iter = 2000,
+    warmup = 2000,
+    cores = 2,
+    chains = 2,
+    seed = 1012,
+    backend = "cmdstanr",
+    threads = threading(4),
+    file = "real_m4_pos",
+    control = list(
+      adapt_delta = 0.95,
+      max_treedepth = 15 ))
+
+
+```
+
+
+```{r}
+summary(m4_pos)
+```
+
+
+
+#### Leave one out cross validation
+
+
+
+```{r}
+loo1 <- loo(m1_pos)
+
+loo2 <- loo(m2_pos)
+
+loo4 <- loo(m4_pos)
+```
+
+
+```{r}
+loo_compare(loo1, loo2, loo4)
+
+#4 performs best
+```
+
+
+
+
+
+####################### Model 2#####################################################
+
+
+Model testing for hypothesis 4
+
+#################################################################################
+
+
+
+```{r}
+dt <- dt %>% 
+  rename(Classification = KeyPressEvent) #rename to classification
+```
+
+
+```{r}
+# Recode key presses to meaningful labels and order them
+dt <- dt %>%
+  mutate(
+    Classification = factor(
+      case_when(
+        Classification == "S" ~ "Tool",
+        Classification == "C" ~ "Mostly Tool",
+        Classification == "M" ~ "Mostly Art",
+        Classification == "L" ~ "Art"
+      ),
+      levels  = c("Tool", "Mostly Tool", "Mostly Art", "Art"),
+      ordered = TRUE
+    )
+  )
+
+dt <- dt %>%
+  filter(!is.na(Classification))
+```
+
+
+
+
+
+```{r}
+
+dt_class <- dt %>%
+  group_by(ID, MediaName, Classification,
+           media_type, orientation, condition, object_id) %>%  # no aoi_type!
+  summarise(
+    prop_dwell_tool = sum(dwell_time_ms[aoi_type == "t"]) / 
+                     sum(dwell_time_ms),
+    prop_dwell_art  = sum(dwell_time_ms[aoi_type == "a"]) / 
+                     sum(dwell_time_ms),
+    .groups = "drop"
+  )
+
+```
+
+
+#### Defining models
+```{r}
+
+
+m1_H4a <- bf(Classification ~ condition:media_type +
+               condition:media_type:prop_dwell_tool)
+
+m2_H4a <- bf(Classification ~ condition:media_type +
+               condition:media_type:prop_dwell_art +
+               (1|ID) + 
+               (1|object_id))
+
+m3_H4a <- bf(Classification ~ condition:media_type +
+               condition:media_type:prop_dwell_tool +
+    (condition:media_type + condition:media_type:prop_dwell_tool | ID) + 
+      (condition + condition:prop_dwell_tool | object_id))
+
+```
+
+
+
+
+
+
+
+################# m1 ######################################################
+
+
+
+#### set priors
+```{r}
+pr1_H4a <- c(
+  prior(normal(0, 1.5), class = "b"),
+  prior(student_t(3, 0, 0.5), class = "sd"),
+  prior(lkj(2), class = "cor"),
+  prior(normal(0, 3), class = "Intercept")
+
+)
+```
+
+
+
+```{r}
+#### Run priors
+m1_prior_H4a <-
+  brm(
+    m1_H4a,
+    data = dt_class,
+    prior = pr1_H4a,
+    family = cumulative(link="logit"),
+    sample_prior="only",
+    backend = "cmdstanr",
+    file = "m1_prior_H4a",
+    warmup = 1000,
+    iter = 2000,
+    chains = 2,
+    cores = 2,
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 20
+    )
+  )
+```
+
+
+
+### Prior checks
+```{r}
+pp1_H4a <- pp_check(m1_prior_H4a, ndraws = 100)
+```
+
+```{r}
+pp1_H4a + xlim(0.5, 5)
+```
+
+
+
+
+### Fitting the posterior model
+```{r}
+m1_pos_H4a <- brm(
+    m1_H4a,
+    data = dt_class,
+    family = cumulative(link = "logit"),
+    prior = pr1_H4a,
+    sample_prior = T,
+    iter = 2000,
+    warmup = 1000,
+    cores = 2,
+    chains = 2,
+    seed = 1012,
+    backend = "cmdstanr",
+    threads = threading(4),
+    file = "m1_pos_H4a",
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 15 ))
+
+
+```
+
+```{r}
+summary(m1_pos_H4a)
+```
+
+
+
+
+
+
+################# m2 ######################################################
+
+
+
+#### set priors
+```{r}
+pr2_H4a <- c(
+  prior(normal(0, 1.5), class = "b"),
+  prior(student_t(3, 0, 0.5), class = "sd"),
+  prior(lkj(2), class = "cor"),
+  prior(normal(0, 3), class = "Intercept")
+
+)
+```
+
+
+
+```{r}
+#### Run priors
+m2_prior_H4a <-
+  brm(
+    m2_H4a,
+    data = dt_class,
+    prior = pr2_H4a,
+    family = cumulative(link="logit"),
+    sample_prior="only",
+    backend = "cmdstanr",
+    file = "m2_prior_H4a",
+    warmup = 1000,
+    iter = 2000,
+    chains = 2,
+    cores = 2,
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 20
+    )
+  )
+```
+
+
+
+### Prior checks
+```{r}
+pp2_H4a <- pp_check(m2_prior_H4a, ndraws = 100)
+```
+
+```{r}
+pp2_H4a + xlim(0.5, 5)
+```
+
+
+
+
+### Fitting the posterior model
+```{r}
+m2_pos_H4a <- brm(
+    m2_H4a,
+    data = dt_class,
+    family = cumulative(link = "logit"),
+    prior = pr2_H4a,
+    sample_prior = T,
+    iter = 2000,
+    warmup = 1000,
+    cores = 2,
+    chains = 2,
+    seed = 1012,
+    backend = "cmdstanr",
+    threads = threading(4),
+    file = "m2_pos_H4a",
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 15 ))
+
+
+```
+
+```{r}
+summary(m2_pos_H4a)
+```
+
+
+
+
+
+################# m3 ######################################################
+
+
+
+#### set priors
+```{r}
+pr3_H4a <- c(
+  prior(normal(0, 1.5), class = "b"),
+  prior(student_t(3, 0, 0.5), class = "sd"),
+  prior(lkj(2), class = "cor"),
+  prior(normal(0, 3), class = "Intercept")
+
+)
+```
+
+
+
+```{r}
+#### Run priors
+m3_prior_H4a <-
+  brm(
+    m3_H4a,
+    data = dt_class,
+    prior = pr3_H4a,
+    family = cumulative(link="logit"),
+    sample_prior="only",
+    backend = "cmdstanr",
+    file = "m3_prior_H4a",
+    warmup = 1000,
+    iter = 2000,
+    chains = 2,
+    cores = 2,
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 20
+    )
+  )
+```
+
+
+
+### Prior checks
+```{r}
+pp3_H4a <- pp_check(m3_prior_H4a, ndraws = 100)
+```
+
+```{r}
+pp3_H4a + xlim(0.5, 5)
+```
+
+
+
+
+### Fitting the posterior model
+```{r}
+m3_pos_H4a <- brm(
+    m3_H4a,
+    data = dt_class,
+    family = cumulative(link = "logit"),
+    prior = pr3_H4a,
+    sample_prior = T,
+    iter = 2000,
+    warmup = 1000,
+    cores = 2,
+    chains = 2,
+    seed = 1012,
+    backend = "cmdstanr",
+    threads = threading(4),
+    file = "m3_pos_H4a",
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 15 ))
+
+
+```
+
+```{r}
+summary(m3_pos_H4a)
+```
+
+
+
+
+#### Leave one out cross validation
+
+
+
+```{r}
+H4_loo1 <- loo(m1_pos_H4a)
+
+H4_loo2 <- loo(m2_pos_H4a)
+
+H4_loo3 <- loo(m3_pos_H4a)
+```
+
+
+```{r}
+loo_compare(H4_loo1, H4_loo2, H4_loo3)
+
+#3 performs best
+```
+
+
+
+
+
+
+
+
