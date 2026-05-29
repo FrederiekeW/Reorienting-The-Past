@@ -1,0 +1,494 @@
+---
+title: "RETP H1a, H1b, 2, 3"
+author: "Frederieke"
+date: "2026-04-05"
+output: html_document
+---
+
+-----------------------Analysis Hypotheses 1a,1b,2,3 ---------------------------
+
+This markdown features the analysis pipeline for model 1, used to test hypothesis 1a, 2, and 3.
+
+--------------------------------------------------------------------------------
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Loading packages
+
+```{r}
+pacman::p_load(tidyverse, rlang, tidymodels, gridExtra, brms, cmdstanr, truncnorm, posterior, bayesplot)
+```
+
+
+### Read in dataframe
+```{r}
+dt <- read_csv("C:/.../Analysis/all_data.csv")
+```
+
+
+##################### Modeling##############################################
+
+
+```{r}
+#defining model
+
+m4 <- bf(trans_dwell ~ 0 + condition:orientation:aoi_type:media_type + 
+           (0 + condition:orientation:aoi_type:media_type | ID) + 
+           (0 + condition:orientation:aoi_type:media_type | object_id))
+
+
+```
+
+############################## Priors
+
+### Beginning by getting some estimates from the data
+
+```{r}
+dt %>%
+  group_by(aoi_type, orientation) %>%
+  summarise(
+    mean_dwell = mean(trans_dwell),
+    sd_dwell   = sd(trans_dwell),
+    .groups = "drop"
+  )
+```
+
+
+############### Model 4 execution ##############################################
+
+```{r}
+get_prior(
+  bf(trans_dwell ~ 0 + condition:orientation:aoi_type:media_type + 
+           (0 + condition:orientation:aoi_type:media_type | ID) + 
+           (0 + condition:orientation:aoi_type:media_type | object_id),
+     phi ~ 1),
+  data   = dt,
+  family = Beta()
+)
+```
+
+```{r}
+#mainly using weakly informative priors
+pr4 <- c(
+  prior(normal(0, 1.5), class = "b"),
+  prior(student_t(3, 0, 0.5), class = "sd"),
+  prior(lkj(2), class = "cor")
+)
+```
+
+#### Run priors
+
+```{r}
+m4_prior <-
+  brm(
+    m4,
+    data = dt,
+    prior = pr4,
+    family = Beta(link="logit"),
+    sample_prior="only",
+    backend = "cmdstanr",
+    file = "real_m4_prior",
+    warmup = 500,
+    iter = 1000,
+    chains = 2,
+    cores = 2,
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 20
+    )
+  )
+```
+
+### Prior checks
+
+```{r}
+pp4 <- pp_check(m4_prior, ndraws = 100)
+```
+
+```{r}
+#visualise prior checks
+pp4 + xlim(-1, 2)
+```
+
+
+### Fitting the posterior model
+
+```{r}
+m4_pos <- brm(
+    m4,
+    data = dt,
+    family = Beta(link = "logit"),
+    prior = pr4,
+    sample_prior = T,
+    iter = 4000,
+    warmup = 2000,
+    cores = 2,
+    chains = 4,
+    seed = 1012,
+    backend = "cmdstanr",
+    threads = threading(4),
+    file = "real_m4_pos",
+    control = list(
+      adapt_delta = 0.95,
+      max_treedepth = 15 ))
+
+
+```
+
+```{r}
+#long and convoluted summary
+summary(m4_pos)
+```
+
+
+
+
+############# Prior Posterior Update Checks/Convergence############################
+
+
+```{r}
+#check bulk and tail, rhat diagnsotics separately
+
+draws <- as_draws(m4_pos)
+
+# Get all diagnostics in one go
+diagnostics <- summarise_draws(draws, rhat, ess_bulk, ess_tail)
+```
+
+
+
+### Example Caterpillars
+```{r}
+#given the complexity, only visualise a few select ones
+samples <- readRDS("real_m4_pos.rds")
+```
+
+
+```{r}
+#fixed labelled, orientation 0, art aoi, art  object
+trace1 <- mcmc_trace(as.array(samples), pars = "b_conditionlabelled:orientation0:aoi_typea:media_typea") +
+  ggtitle("Trace Plot for Intercept") +
+  theme_bw()
+
+#fixed labelled, orientation 0, art aoi, tool object
+trace2 <- mcmc_trace(as.array(samples), pars = "b_conditionlabelled:orientation0:aoi_typea:media_typet") +
+  ggtitle("Trace Plot for Intercept") +
+  theme_bw()
+
+#fixed , labelled, orientation 0, tool aoi, tool object
+trace3 <- mcmc_trace(as.array(samples), pars = "b_conditionlabelled:orientation0:aoi_typet:media_typet") +
+  ggtitle("Trace Plot for Intercept") +
+  theme_bw()
+
+#fixed unlabelled, orientation 0, art aoi, art object
+trace4 <- mcmc_trace(as.array(samples), pars = "b_conditionunlabelled:orientation0:aoi_typea:media_typea") +
+  ggtitle("Trace Plot for Intercept") +
+  theme_bw()
+
+
+#Random effect
+trace5 <- mcmc_trace(as.array(samples), pars = "sd_ID__conditionlabelled:orientation0:aoi_typea:media_typea") +
+  ggtitle("Trace Plot for Intercept") +
+  theme_bw()
+
+#random object, labelled
+trace6 <- mcmc_trace(as.array(samples), pars = "sd_object_id__conditionlabelled:orientation0:aoi_typea:media_typea") +
+  ggtitle("Trace Plot for Intercept") +
+  theme_bw()
+
+```
+
+
+#visualise traceplots
+```{r}
+trace1
+
+trace2
+
+trace3
+
+trace4
+
+trace5
+
+trace6
+
+```
+
+
+
+```{r}
+draws_df <- as_draws_df(m4_pos)
+```
+
+
+```{r}
+#grab names
+names(draws_df)[grepl("prior", names(draws_df))]
+```
+
+
+
+
+
+### Prior posterior plots
+```{r}
+#Again only examples due to model complexity
+
+#Remember, Prior columns are automatically named with prior_
+pp1 <- ggplot(draws_df) +
+  geom_density(aes(x = `b_conditionlabelled:orientation0:aoi_typea:media_typea`), fill = "blue", alpha = 0.3) +
+  geom_density(aes(x = `prior_b`), fill = "red", alpha = 0.3) +
+  labs(title = "Prior vs Posterior",
+       x     = "Effect (log-odds scale)",
+       y     = "Density") +
+  xlim(c(-2, 6)) +
+  theme_bw()
+
+pp2 <- ggplot(draws_df) +
+  geom_density(aes(`b_conditionlabelled:orientation0:aoi_typet:media_typet`), fill = "blue", alpha = 0.3) +
+  geom_density(aes(`prior_b`), fill = "red", alpha = 0.3) +
+  labs(title = "Prior vs Posterior",
+       x     = "Effect (log-odds scale)",
+       y     = "Density") +
+  xlim(c(-2, 6)) +
+  theme_bw()
+
+pp3 <- ggplot(draws_df) +
+  geom_density(aes(`b_conditionunlabelled:orientation0:aoi_typea:media_typea`), fill = "blue", alpha = 0.3) +
+  geom_density(aes(`prior_b`), fill = "red", alpha = 0.3) +
+  labs(title = "Prior vs Posterior",
+       x     = "Effect (log-odds scale)",
+       y     = "Density") +
+  xlim(c(-2, 6)) +
+  theme_bw()
+
+pp4 <- ggplot(draws_df) +
+  geom_density(aes(`sd_ID__conditionlabelled:orientation0:aoi_typea:media_typea`), fill = "blue", alpha = 0.3) +
+  geom_density(aes(`prior_sd_ID`), fill = "red", alpha = 0.3) +
+  labs(title = "Prior vs Posterior",
+       x     = "Effect (log-odds scale)",
+       y     = "Density") +
+  
+  xlim(c(-2, 6)) +
+  theme_bw()
+
+pp5 <- ggplot(draws_df) +
+  geom_density(aes(`sd_object_id__conditionlabelled:orientation0:aoi_typea:media_typea`), fill = "blue", alpha = 0.3) +
+  geom_density(aes(`prior_sd_object_id`), fill = "red", alpha = 0.3) +
+  labs(title = "Prior vs Posterior",
+       x     = "Effect (log-odds scale)",
+       y     = "Density") +
+  xlim(c(-2, 6)) +
+  theme_bw()
+
+```
+
+
+##visualise
+```{r}
+pp1
+
+pp2
+
+pp3
+
+pp4
+
+pp5
+
+```
+
+
+
+
+
+##  Hypothesis Testing
+
+
+#################### Hypothesis 1a #############################################
+
+```{r}
+#H1a prop dwell time on art AOIs higher for 0 degree orientation on all objects compared to other orientations
+
+hypothesis(m4_pos, "(conditionlabelled:orientation0:aoi_typea:media_typea + conditionunlabelled:orientation0:aoi_typea:media_typea +
+    conditionlabelled:orientation0:aoi_typea:media_typet + conditionunlabelled:orientation0:aoi_typea:media_typet)/4 > (conditionlabelled:orientation90:aoi_typea:media_typea + conditionunlabelled:orientation90:aoi_typea:media_typea + conditionlabelled:orientation180:aoi_typea:media_typea + conditionunlabelled:orientation180:aoi_typea:media_typea + conditionlabelled:orientation270:aoi_typea:media_typea + conditionunlabelled:orientation270:aoi_typea:media_typea +
+conditionlabelled:orientation90:aoi_typea:media_typet + conditionunlabelled:orientation90:aoi_typea:media_typet + conditionlabelled:orientation180:aoi_typea:media_typet + conditionunlabelled:orientation180:aoi_typea:media_typet + conditionlabelled:orientation270:aoi_typea:media_typet + conditionunlabelled:orientation270:aoi_typea:media_typet)/12")
+```
+
+
+
+################## Hypothesis 1b ##############################################
+
+
+```{r}
+ ##h1b
+# tool will have higher trans_dwell in aoi_typet compared to aoi_typea 
+
+#if it is a tool object, the dwell time will be higher in tool aois compared to art aois
+
+hypothesis(m4_pos, "(conditionlabelled:orientation0:aoi_typet:media_typet +
+  conditionlabelled:orientation90:aoi_typet:media_typet +
+  conditionlabelled:orientation180:aoi_typet:media_typet +
+  conditionlabelled:orientation270:aoi_typet:media_typet +
+  conditionunlabelled:orientation0:aoi_typet:media_typet +
+  conditionunlabelled:orientation90:aoi_typet:media_typet +
+  conditionunlabelled:orientation180:aoi_typet:media_typet +
+  conditionunlabelled:orientation270:aoi_typet:media_typet) / 8 >
+  (conditionlabelled:orientation0:aoi_typea:media_typet +
+  conditionlabelled:orientation90:aoi_typea:media_typet +
+  conditionlabelled:orientation180:aoi_typea:media_typet +
+  conditionlabelled:orientation270:aoi_typea:media_typet +
+  conditionunlabelled:orientation0:aoi_typea:media_typet +
+  conditionunlabelled:orientation90:aoi_typea:media_typet +
+  conditionunlabelled:orientation180:aoi_typea:media_typet +
+  conditionunlabelled:orientation270:aoi_typea:media_typet) / 8")
+```
+
+```{r}
+### H1b --> 
+
+# if the object is a tool, then the dwell time will be higher for tool aois compared to tool aois in art objects
+
+hypothesis(m4_pos, "(conditionlabelled:orientation0:aoi_typet:media_typet +
+  conditionlabelled:orientation90:aoi_typet:media_typet +
+  conditionlabelled:orientation180:aoi_typet:media_typet +
+  conditionlabelled:orientation270:aoi_typet:media_typet +
+  conditionunlabelled:orientation0:aoi_typet:media_typet +
+  conditionunlabelled:orientation90:aoi_typet:media_typet +
+  conditionunlabelled:orientation180:aoi_typet:media_typet +
+  conditionunlabelled:orientation270:aoi_typet:media_typet) / 8 >
+  (conditionlabelled:orientation0:aoi_typet:media_typea +
+  conditionlabelled:orientation90:aoi_typet:media_typea +
+  conditionlabelled:orientation180:aoi_typet:media_typea +
+  conditionlabelled:orientation270:aoi_typet:media_typea +
+  conditionunlabelled:orientation0:aoi_typet:media_typea +
+  conditionunlabelled:orientation90:aoi_typet:media_typea +
+  conditionunlabelled:orientation180:aoi_typet:media_typea +
+  conditionunlabelled:orientation270:aoi_typet:media_typea) / 8")
+
+
+```
+
+```{r}
+###H1b 
+#if the object is art then the dwell time will be higher in art aois than for tool aois
+
+
+hypothesis(m4_pos, "(conditionlabelled:orientation0:aoi_typea:media_typea +
+  conditionlabelled:orientation90:aoi_typea:media_typea +
+  conditionlabelled:orientation180:aoi_typea:media_typea +
+  conditionlabelled:orientation270:aoi_typea:media_typea +
+  conditionunlabelled:orientation0:aoi_typea:media_typea +
+  conditionunlabelled:orientation90:aoi_typea:media_typea +
+  conditionunlabelled:orientation180:aoi_typea:media_typea +
+  conditionunlabelled:orientation270:aoi_typea:media_typea) / 8 >
+  (conditionlabelled:orientation0:aoi_typet:media_typea +
+  conditionlabelled:orientation90:aoi_typet:media_typea +
+  conditionlabelled:orientation180:aoi_typet:media_typea +
+  conditionlabelled:orientation270:aoi_typet:media_typea +
+  conditionunlabelled:orientation0:aoi_typet:media_typea +
+  conditionunlabelled:orientation90:aoi_typet:media_typea +
+  conditionunlabelled:orientation180:aoi_typet:media_typea +
+  conditionunlabelled:orientation270:aoi_typet:media_typea) / 8")
+
+
+
+
+```
+
+```{r}
+###H1b 
+
+# If the object is art then the dwell time will be larger for art aois compared to art aois when the object is a tool
+
+hypothesis(m4_pos, "(conditionlabelled:orientation0:aoi_typea:media_typea +
+  conditionlabelled:orientation90:aoi_typea:media_typea +
+  conditionlabelled:orientation180:aoi_typea:media_typea +
+  conditionlabelled:orientation270:aoi_typea:media_typea +
+  conditionunlabelled:orientation0:aoi_typea:media_typea +
+  conditionunlabelled:orientation90:aoi_typea:media_typea +
+  conditionunlabelled:orientation180:aoi_typea:media_typea +
+  conditionunlabelled:orientation270:aoi_typea:media_typea) / 8 >
+  (conditionlabelled:orientation0:aoi_typea:media_typet +
+  conditionlabelled:orientation90:aoi_typea:media_typet +
+  conditionlabelled:orientation180:aoi_typea:media_typet +
+  conditionlabelled:orientation270:aoi_typea:media_typet +
+  conditionunlabelled:orientation0:aoi_typea:media_typet +
+  conditionunlabelled:orientation90:aoi_typea:media_typet +
+  conditionunlabelled:orientation180:aoi_typea:media_typet +
+  conditionunlabelled:orientation270:aoi_typea:media_typet) / 8")
+```
+
+
+
+
+
+
+
+######################## Hypothesis 2 ##########################################
+
+
+```{r}
+# H2
+# tools will have higher relative trans_dwell for aoi_typet (compared to aoi_typea)
+#when in labelled condition then in the unlabelled condition
+
+
+
+hypothesis(m4_pos, "((conditionlabelled:orientation0:aoi_typet:media_typet - conditionlabelled:orientation0:aoi_typet:media_typea) +
+  (conditionlabelled:orientation90:aoi_typet:media_typet - conditionlabelled:orientation90:aoi_typet:media_typea) +
+  (conditionlabelled:orientation180:aoi_typet:media_typet - conditionlabelled:orientation180:aoi_typet:media_typea) +
+  (conditionlabelled:orientation270:aoi_typet:media_typet - conditionlabelled:orientation270:aoi_typet:media_typea))/4 >
+  ((conditionunlabelled:orientation0:aoi_typet:media_typet - conditionunlabelled:orientation0:aoi_typet:media_typea) +
+  (conditionunlabelled:orientation90:aoi_typet:media_typet - conditionunlabelled:orientation90:aoi_typet:media_typea) +
+  (conditionunlabelled:orientation180:aoi_typet:media_typet - conditionunlabelled:orientation180:aoi_typet:media_typea) +
+  (conditionunlabelled:orientation270:aoi_typet:media_typet - conditionunlabelled:orientation270:aoi_typet:media_typea))/4")
+
+```
+
+```{r}
+# H2 Do the same for art
+
+
+# tool will have higher relative trans_dwell for aoi_typet (compared to aoi_typea)
+#when in labelled condition then in the unlabelled condition
+
+
+hypothesis(m4_pos, "((conditionlabelled:orientation0:aoi_typea:media_typea - conditionlabelled:orientation0:aoi_typea:media_typet) +
+  (conditionlabelled:orientation90:aoi_typea:media_typea - conditionlabelled:orientation90:aoi_typea:media_typet) +
+  (conditionlabelled:orientation180:aoi_typea:media_typea - conditionlabelled:orientation180:aoi_typea:media_typet) +
+  (conditionlabelled:orientation270:aoi_typea:media_typea - conditionlabelled:orientation270:aoi_typea:media_typet))/4 >
+  ((conditionunlabelled:orientation0:aoi_typea:media_typea - conditionunlabelled:orientation0:aoi_typea:media_typet) +
+  (conditionunlabelled:orientation90:aoi_typea:media_typea - conditionunlabelled:orientation90:aoi_typea:media_typet) +
+  (conditionunlabelled:orientation180:aoi_typea:media_typea - conditionunlabelled:orientation180:aoi_typea:media_typet) +
+  (conditionunlabelled:orientation270:aoi_typea:media_typea - conditionunlabelled:orientation270:aoi_typea:media_typet))/4")
+
+
+
+```
+
+
+
+############################ Hypothesis 3 ######################################
+
+```{r}
+#H3 
+
+
+hypothesis(m4_pos, "(conditionunlabelled:orientation0:aoi_typea:media_typea  + conditionunlabelled:orientation0:aoi_typea:media_typet)/2 - (conditionunlabelled:orientation90:aoi_typea:media_typea + conditionunlabelled:orientation180:aoi_typea:media_typea + conditionunlabelled:orientation270:aoi_typea:media_typea  + conditionunlabelled:orientation90:aoi_typea:media_typet + conditionunlabelled:orientation180:aoi_typea:media_typet + conditionunlabelled:orientation270:aoi_typea:media_typet)/6 >
+  (conditionlabelled:orientation0:aoi_typea:media_typea  + conditionlabelled:orientation0:aoi_typea:media_typet)/2 - (conditionlabelled:orientation90:aoi_typea:media_typea + conditionlabelled:orientation180:aoi_typea:media_typea + conditionlabelled:orientation270:aoi_typea:media_typea  + conditionlabelled:orientation90:aoi_typea:media_typet + conditionlabelled:orientation180:aoi_typea:media_typet + conditionlabelled:orientation270:aoi_typea:media_typet)/6")
+```
+
+
+
+
+
+
+
+
+
