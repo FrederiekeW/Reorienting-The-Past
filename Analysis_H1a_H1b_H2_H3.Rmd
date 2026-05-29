@@ -171,33 +171,27 @@ samples <- readRDS("real_m4_pos.rds")
 ```{r}
 #fixed labelled, orientation 0, art aoi, art  object
 trace1 <- mcmc_trace(as.array(samples), pars = "b_conditionlabelled:orientation0:aoi_typea:media_typea") +
-  ggtitle("Trace Plot for Intercept") +
   theme_bw()
 
 #fixed labelled, orientation 0, art aoi, tool object
 trace2 <- mcmc_trace(as.array(samples), pars = "b_conditionlabelled:orientation0:aoi_typea:media_typet") +
-  ggtitle("Trace Plot for Intercept") +
   theme_bw()
 
 #fixed , labelled, orientation 0, tool aoi, tool object
 trace3 <- mcmc_trace(as.array(samples), pars = "b_conditionlabelled:orientation0:aoi_typet:media_typet") +
-  ggtitle("Trace Plot for Intercept") +
   theme_bw()
 
 #fixed unlabelled, orientation 0, art aoi, art object
 trace4 <- mcmc_trace(as.array(samples), pars = "b_conditionunlabelled:orientation0:aoi_typea:media_typea") +
-  ggtitle("Trace Plot for Intercept") +
   theme_bw()
 
 
 #Random effect
 trace5 <- mcmc_trace(as.array(samples), pars = "sd_ID__conditionlabelled:orientation0:aoi_typea:media_typea") +
-  ggtitle("Trace Plot for Intercept") +
   theme_bw()
 
 #random object, labelled
 trace6 <- mcmc_trace(as.array(samples), pars = "sd_object_id__conditionlabelled:orientation0:aoi_typea:media_typea") +
-  ggtitle("Trace Plot for Intercept") +
   theme_bw()
 
 ```

@@ -1,0 +1,377 @@
+---
+title: "H4a"
+author: "Freddy"
+date: "2026-04-11"
+output: html_document
+---
+
+
+-----------------------Analysis Hypotheses 4 ---------------------------------------
+
+This markdown features the analysis pipeline for model 2, used to test hypothesis 4.
+
+------------------------------------------------------------------------------------
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+### Loading packages
+```{r}
+pacman::p_load(tidyverse, rlang, tidymodels, gridExtra, brms, cmdstanr, truncnorm, rstan, tidybayes)
+```
+
+
+```{r}
+dt <- dt %>% 
+  rename(Classification = KeyPressEvent) #rename to classification
+```
+
+
+```{r}
+# Recode key presses to meaningful labels and order them
+dt <- dt %>%
+  mutate(
+    Classification = factor(
+      case_when(
+        Classification == "S" ~ "Tool",
+        Classification == "C" ~ "Mostly Tool",
+        Classification == "M" ~ "Mostly Art",
+        Classification == "L" ~ "Art"
+      ),
+      levels  = c("Tool", "Mostly Tool", "Mostly Art", "Art"),
+      ordered = TRUE
+    )
+  )
+
+dt <- dt %>% #just make sure no NA's
+  filter(!is.na(Classification))
+```
+
+
+
+
+
+```{r}
+#create prop dwell for tool (and for art)
+dt_class <- dt %>%
+  group_by(ID, MediaName, Classification,
+           media_type, orientation, condition, object_id) %>%  # no aoi_type!
+  summarise(
+    prop_dwell_tool = sum(dwell_time_ms[aoi_type == "t"]) / 
+                     sum(dwell_time_ms),
+    prop_dwell_art  = sum(dwell_time_ms[aoi_type == "a"]) / 
+                     sum(dwell_time_ms),
+    .groups = "drop"
+  )
+
+
+```
+
+
+
+
+##################### Modelling ##############################################
+
+
+
+```{r}
+#define the model
+
+m3_H4a <- bf(Classification ~ condition:media_type +
+               condition:media_type:prop_dwell_tool +
+    (condition:media_type + condition:media_type:prop_dwell_tool | ID) + 
+      (condition + condition:prop_dwell_tool | object_id))
+
+
+```
+
+
+#### Set priors
+```{r}
+#weakly informative priors to let the data work
+pr3_H4a <- c(
+
+  prior(normal(0, 1.5), class = "b"),
+
+  prior(student_t(3, 0, 0.5), class = "sd"),
+
+  prior(lkj(2), class = "cor"),
+
+  prior(normal(0, 3), class = "Intercept")
+
+)
+```
+
+
+
+
+### Prior model
+```{r}
+#### Run priors
+m3_prior_H4a <-
+  brm(
+    m3_H4a,
+    data = dt_class,
+    prior = pr3_H4a,
+    family = cumulative(link="logit"),
+    sample_prior="only",
+    backend = "cmdstanr",
+    file = "m333_prior_H4a",
+    warmup = 1000,
+    iter = 2000,
+    chains = 2,
+    cores = 2,
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 20
+    )
+  )
+```
+
+
+
+### Prior checks
+```{r}
+pp3_H4a <- pp_check(m3_prior_H4a, ndraws = 100)
+```
+
+```{r}
+#visualise prior checks
+pp3_H4a + xlim(0.5, 5)
+```
+
+
+
+
+### Fitting the posterior model
+```{r}
+m3_pos_H4a <- brm(
+    m3_H4a,
+    data = dt_class,
+    family = cumulative(link = "logit"),
+    prior = pr3_H4a,
+    sample_prior = T,
+    iter = 4000,
+    warmup = 2000,
+    cores = 2,
+    chains = 4,
+    seed = 1998,
+    backend = "cmdstanr",
+    threads = threading(4),
+    file = "m333_pos_H4a",
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 15 ))
+
+
+```
+
+
+```{r}
+summary(m3_pos_H4a)
+```
+
+
+
+
+
+############# Prior Posterior Update Checks/Convergence############################
+
+```{r}
+#check bulk and tail, rhat diagnsotics
+
+draws <- as_draws(m3_pos_H4a)
+
+# Get all diagnostics in one go
+diagnostics <- summarise_draws(draws, rhat, ess_bulk, ess_tail)
+```
+
+
+
+
+### Example Caterpillars
+```{r}
+#given the complexity, only visualise a few select ones
+samples <- readRDS("m333_pos_H4a.rds")
+```
+
+
+```{r}
+#fixed labelled, orientation 0, art aoi, art  object
+trace1 <- mcmc_trace(as.array(samples), pars = "b_conditionlabelled:media_typet") +
+  ggtitle("Trace Plot for Intercept") +
+  theme_bw()
+
+#fixed labelled, orientation 0, art aoi, tool object
+trace2 <- mcmc_trace(as.array(samples), pars = "b_conditionlabelled:media_typea") +
+  ggtitle("Trace Plot for Intercept") +
+  theme_bw()
+
+#fixed , labelled, orientation 0, tool aoi, tool object
+trace3 <- mcmc_trace(as.array(samples), pars = "b_conditionunlabelled:media_typet:prop_dwell_tool") +
+  theme_bw()
+
+#fixed unlabelled, orientation 0, art aoi, art object
+trace4 <- mcmc_trace(as.array(samples), pars = "b_conditionlabelled:media_typet:prop_dwell_tool") +
+  theme_bw()
+
+
+#Random effect
+trace5 <- mcmc_trace(as.array(samples), pars = "sd_ID__conditionlabelled:media_typet") +
+  theme_bw()
+
+#random object, labelled
+trace6 <- mcmc_trace(as.array(samples), pars = "sd_object_id__conditionlabelled:prop_dwell_tool") +
+  theme_bw()
+
+```
+
+
+#visualise traceplots
+```{r}
+trace1
+
+trace2
+
+trace3
+
+trace4
+
+trace5
+
+trace6
+
+```
+
+
+
+
+
+```{r}
+draws_df <- as_draws_df(m3_pos_H4a)
+```
+
+
+```{r}
+#grab names
+names(draws_df)[grepl("prior", names(draws_df))]
+```
+
+
+
+
+
+### Prior posterior plots
+```{r}
+#Again only examples due to model complexity
+
+#Remember, Prior columns are automatically named with prior_
+pp1 <- ggplot(draws_df) +
+  geom_density(aes(x = `b_conditionlabelled:media_typet`), fill = "blue", alpha = 0.3) +
+  geom_density(aes(x = `prior_b`), fill = "red", alpha = 0.3) +
+  labs(title = "Prior vs Posterior",
+       x     = "Effect (log-odds scale)",
+       y     = "Density") +
+  xlim(c(-2, 6)) +
+  theme_bw()
+
+pp2 <- ggplot(draws_df) +
+  geom_density(aes(`b_conditionlabelled:media_typea`), fill = "blue", alpha = 0.3) +
+  geom_density(aes(`prior_b`), fill = "red", alpha = 0.3) +
+  labs(title = "Prior vs Posterior",
+       x     = "Effect (log-odds scale)",
+       y     = "Density") +
+  xlim(c(-2, 6)) +
+  theme_bw()
+
+pp3 <- ggplot(draws_df) +
+  geom_density(aes(`b_conditionunlabelled:media_typet:prop_dwell_tool`), fill = "blue", alpha = 0.3) +
+  geom_density(aes(`prior_b`), fill = "red", alpha = 0.3) +
+  labs(title = "Prior vs Posterior",
+       x     = "Effect (log-odds scale)",
+       y     = "Density") +
+  xlim(c(-2, 6)) +
+  theme_bw()
+
+pp4 <- ggplot(draws_df) +
+  geom_density(aes(`b_conditionlabelled:media_typet:prop_dwell_tool`), fill = "blue", alpha = 0.3) +
+  geom_density(aes(`prior_sd_ID`), fill = "red", alpha = 0.3) +
+  labs(title = "Prior vs Posterior",
+       x     = "Effect (log-odds scale)",
+       y     = "Density") +
+  
+  xlim(c(-2, 6)) +
+  theme_bw()
+
+pp5 <- ggplot(draws_df) +
+  geom_density(aes(`sd_ID__conditionlabelled:media_typet`), fill = "blue", alpha = 0.3) +
+  geom_density(aes(`prior_sd_object_id`), fill = "red", alpha = 0.3) +
+  labs(title = "Prior vs Posterior",
+       x     = "Effect (log-odds scale)",
+       y     = "Density") +
+  xlim(c(-2, 6)) +
+  theme_bw()
+
+pp6 <- ggplot(draws_df) +
+  geom_density(aes(`sd_object_id__conditionlabelled:prop_dwell_tool`), fill = "blue", alpha = 0.3) +
+  geom_density(aes(`prior_sd_object_id`), fill = "red", alpha = 0.3) +
+  labs(title = "Prior vs Posterior",
+       x     = "Effect (log-odds scale)",
+       y     = "Density") +
+  xlim(c(-2, 6)) +
+  theme_bw()
+```
+
+
+```{r}
+pp1 
+
+pp2
+
+pp3
+
+pp4
+
+pp5
+
+pp6
+```
+
+
+
+
+
+
+##################################### Hypothesis ###############################
+
+```{r}
+# H4a 
+
+# the higher prop_dwell_tool the higher the classificaiton (where confident tool is the highest level and confident art is the lowest level)
+
+hypothesis(m3_pos_H4a, "(conditionlabelled:media_typea:prop_dwell_tool +
+  conditionlabelled:media_typet:prop_dwell_tool +
+  conditionunlabelled:media_typea:prop_dwell_tool +
+  conditionunlabelled:media_typet:prop_dwell_tool)/4 > 0")
+
+### sanity check to understand the results
+# hypothesis(m3_pos_H4a, "(conditionlabelled:media_typea:prop_dwell_tool +
+#   conditionlabelled:media_typet:prop_dwell_tool +
+#   conditionunlabelled:media_typea:prop_dwell_tool +
+#   conditionunlabelled:media_typet:prop_dwell_tool)/4 < 0")
+
+```
+
+
+
+
+
+
+
+
