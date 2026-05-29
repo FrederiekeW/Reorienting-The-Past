@@ -1,0 +1,306 @@
+---
+title: "RETP Pre-processing"
+author: "Frederieke"
+date: "2026-03-18"
+---
+
+
+---------------------- Pre-processing pipeline ---------------------------------
+
+This document includes the entire data pre-processing pipeline, preparing the raw eye-tracking data for the statistical analysis.
+
+--------------------------------------------------------------------------------
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Load packages
+```{r}
+pacman::p_load(readr, tidyverse, eyetrackingR, dplyr, sr, stringr, jpeg, grid, vroom, roperators)
+```
+
+
+### Read in individual data files, as the amount of data is too large for a single file
+
+```{r}
+df <- read_tsv("C:.../Analysis/retp4.tsv")
+```
+
+
+
+
+### See, which participants are part of the specific data file
+```{r}
+unique(df$ParticipantName)
+
+unique(df$KeyPressEvent) #see if any false key presses
+```
+
+
+
+#### Remove last participant as double in dataframes
+```{r}
+#remove the last participant, because some show up both at the end and at the beginning of the next data file
+df <- df[df$ParticipantName != "Test", ]
+
+```
+
+
+### Extract classification
+```{r}
+#remove key presses, which are errors
+#rename key presses, which next to original ones when clear which key, to correct errors
+
+classifications <- df %>%
+  filter(!is.na(KeyPressEvent) & KeyPressEvent != "") %>%
+  distinct(ParticipantName, MediaName, KeyPressEvent) %>%
+  filter(KeyPressEvent != "Space") %>%
+  filter(KeyPressEvent != "Return") %>%
+  filter(KeyPressEvent != "Right") %>% 
+  filter(KeyPressEvent != "NA") %>% 
+  mutate(KeyPressEvent = case_when(
+    KeyPressEvent %in% c("W", "D", "A") ~ "S",
+    TRUE ~ KeyPressEvent)) %>% 
+  mutate(KeyPressEvent = case_when(
+    KeyPressEvent %in% c("X", "V") ~ "C",
+    TRUE ~ KeyPressEvent)) %>% 
+  mutate(KeyPressEvent = case_when(
+    KeyPressEvent %in% c("Oemtilde", "K") ~ "L",
+    TRUE ~ KeyPressEvent))
+```
+
+
+
+#### Keep only fixations
+```{r}
+fixations <- df %>%
+  filter(GazeEventType == "Fixation")
+```
+
+
+
+####  Remove invalid gaze
+```{r}
+# Tobii validity: 0 = perfect, 1 = good, 2-4 = unreliable
+fixations <- fixations %>%
+  filter(ValidityLeft <= 1 | ValidityRight <= 1)
+```
+
+
+####  Keep one unique row per fixation
+```{r}
+#condense data frame
+fixations <- fixations %>%
+  distinct(ParticipantName, MediaName, FixationIndex, .keep_all = TRUE)
+```
+
+
+
+```{r}
+# see if AOI names have dots instead of brackets? Then change next chunk if necessary, usually brackets
+colnames(fixations) %>% str_subset("AOI")
+```
+
+
+### 4. Pivot AOI columns to long format
+```{r}
+#find proper AOI names to keep
+# excludes secondary AOIs ending in _s before the closing bracket
+aoi_cols <- colnames(fixations) %>%
+  str_subset("^AOI\\[\\d+_[ta]_") %>%
+  str_subset("_s", negate = TRUE) 
+
+fixations_long <- fixations %>%
+  select(ParticipantName, MediaName, FixationIndex, GazeEventDuration, `GazePointX (MCSpx)`, `GazePointY (MCSpx)`, KeyPressEvent, `[Gender]Value`, `[Age]Value`,RecordingDuration, all_of(aoi_cols)) %>%
+  pivot_longer(
+    cols = all_of(aoi_cols),
+    names_to = "AOI_raw",
+    values_to = "Hit"
+  ) %>%
+  filter(Hit == 1)  #fixations with no aoi hits excluded
+```
+
+
+#### Parse AOI names
+```{r}
+
+fixations_long <- fixations_long %>%
+  mutate(
+    AOI_clean   = str_extract(AOI_raw, "(?<=\\[)[^\\]]+"),  # get content inside, change to "(?<=AOI\\.).*(?=\\.Hit)" when dots instead of brackets
+    object_id   = str_extract(MediaName, "^\\d+"), #first digits from media name
+    aoi_type    = str_extract(AOI_clean, "(?<=_)[ta](?=_)"), #either t or a
+    orientation    = str_extract(MediaName, "\\d+(?=\\.(png|png$)"), #
+    aoi_index   = str_extract(AOI_clean, "\\d+$")
+  )
+
+
+
+```
+
+
+### Parse media-name for cross-checking
+```{r}
+#verify that abiove works
+fixations_long <- fixations_long %>%
+  mutate(
+    media_object   = str_extract(MediaName, "^\\d+"),
+    media_type     = str_extract(MediaName, "(?<=_)[ta](?=_)"),
+    orientation = str_extract(MediaName, "\\d+(?=\\.png$)")
+  )
+```
+
+
+#### Sanity checks an overview
+```{r}
+# How many fixations per participant?
+fixations_long %>%
+  count(ParticipantName)
+
+# How many fixations hit tool vs art AOI?
+fixations_long %>%
+  count(aoi_type)
+
+#AOI parsing looks right?
+fixations_long %>%
+  select(AOI_raw, AOI_clean, object_id, aoi_type, orientation, aoi_index) %>%
+  distinct() %>%
+  head(20)
+```
+
+
+
+```{r}
+fixations_long <- rename(fixations_long, ID = ParticipantName) #forgot to rename ID for simplicity
+fixations_long <- fixations_long %>% 
+  rename(Classification = KeyPressEvent) #and changed my mind about renaming this one
+```
+
+
+#### Summing gaze event duration per participant, stimulus, AOI
+```{r}
+ 
+dwell_time <- fixations_long %>%
+  group_by(ID, MediaName, object_id, media_type, orientation, aoi_type, `[Gender]Value`, `[Age]Value`, RecordingDuration, `GazePointX (MCSpx)`, `GazePointY (MCSpx)` ) %>%
+  summarise(
+    dwell_time_ms    = sum(GazeEventDuration, na.rm = TRUE),
+    n_fixations      = n(),
+    .groups = "drop"
+  )
+
+#GazePoints on media for heatmaps
+```
+
+
+### Transform to proportion of dwell time
+```{r}
+ 
+dwell_time <- dwell_time %>%
+  group_by(ID, MediaName) %>%
+  mutate(
+    total_dwell_ms   = sum(dwell_time_ms),
+    prop_dwell       = dwell_time_ms / total_dwell_ms
+  ) %>%
+  ungroup()
+```
+
+
+
+#### Adding participant groups as column
+```{r}
+
+dwell_time <- dwell_time %>%
+  mutate(
+    condition = case_when(
+      str_detect(ID, "L") ~ "labelled",
+      str_detect(ID, "U") ~ "unlabelled",
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+####merge classifications
+```{r}
+dwell_time <- dwell_time %>%
+  left_join(classifications, by = c("ID", "MediaName"))
+```
+
+
+
+
+### save as csv
+```{r}
+write_csv(dwell_time, "C:.../Analysis/P04L2P60L2.csv")
+```
+
+
+
+Repeat for all five data files
+
+
+-------------------------- Combine all datafiles -------------------------------
+
+
+
+#### Read in data
+```{r}
+d1 <- read_csv("C:/.../Analysis/P05U1P41U1.csv") 
+
+d2 <- read_csv("C:/.../Analysis/P45U1P22L1.csv")
+
+d3 <- read_csv("C:/.../Analysis/P26L1P15U2.csv") 
+
+d4 <- read_csv("C:/.../Analysis/P19U2P61U2.csv") 
+
+d5 <- read_csv("C:/.../Analysis/P04L2P60L2.csv")
+```
+
+
+
+
+
+### Merge dataframe
+
+```{r}
+d_full <- rbind(d1, d2, d3, d4, d5)
+```
+
+```{r}
+write_csv(d_full, "C:/Users/frede/Documents/Speciale/Analysis/all_data.csv")
+```
+
+```{r}
+unique(d_full$ParticipantName) #are all participants there?
+```
+
+
+
+### Data transformation
+
+```{r}
+#transforming the data to exclude 0's & 1's, avoiding singularity
+d_full$trans_dwell <- ((d_full$prop_dwell * (d_full$total_dwell_ms - 1)) + 0.5) / d_full$total_dwell_ms
+
+```
+
+
+```{r}
+# Set factor levels with 0 as baseline
+d_full$orientation <- factor(d_full$orientation, 
+                              levels = c("0", "90", "180", "270"))
+
+# Double check
+levels(d_full$orientation)
+
+```
+
+
+
+
+
+
+
+
